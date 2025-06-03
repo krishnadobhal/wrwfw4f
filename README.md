@@ -11,7 +11,6 @@ A RESTful API-based backend for a Chapter Performance Dashboard. This applicatio
   - [Prerequisites](#prerequisites)
   - [Installation](#installation)
   - [Environment Configuration](#environment-configuration)
-- [Database Seeding](#database-seeding)
 - [API Endpoints](#api-endpoints)
   - [Get All Chapters](#get-all-chapters)
   - [Get a Specific Chapter](#get-a-specific-chapter)
@@ -28,7 +27,7 @@ This project implements a backend API for a Chapter Performance Dashboard, allow
 - Filter chapters based on different criteria
 - Upload new chapter data (admin only)
 
-The system uses MongoDB for data storage, Redis for caching and rate limiting, and Express.js for the API layer.
+The system uses MongoDB for data storage, Redis for caching, and Express.js for the API layer.
 
 ## Features
 
@@ -36,9 +35,8 @@ The system uses MongoDB for data storage, Redis for caching and rate limiting, a
 - **Data Filtering**: Filter chapters by class, unit, status, weak chapters, and subject
 - **Pagination**: Limit the number of results returned per request
 - **Caching**: Redis-based caching to improve performance
-- **Rate Limiting**: Protect the API from abuse with Redis-based rate limiting
+- **Rate Limiting**: Protect the API from abuse with in-memory rate limiting
 - **Admin Authentication**: Simple token-based authentication for admin routes
-- **Database Seeding**: Utility for populating the database with initial data
 - **Error Handling**: Comprehensive error handling and consistent error responses
 - **Validation**: Input validation for all API endpoints
 
@@ -48,12 +46,12 @@ The system uses MongoDB for data storage, Redis for caching and rate limiting, a
 - **Express.js**: Web framework for Node.js
 - **MongoDB**: NoSQL database
 - **Mongoose**: MongoDB object modeling for Node.js
-- **Redis**: In-memory data store for caching and rate limiting
+- **Redis**: In-memory data store for caching
 - **Multer**: Middleware for handling file uploads
 - **Helmet**: Security middleware for Express
 - **CORS**: Cross-origin resource sharing middleware
 - **Dotenv**: Environment variable management
-- **Rate Limiter Flexible**: Rate limiting library
+- **Express Rate Limit**: Rate limiting middleware for Express
 
 ## Getting Started
 
@@ -119,24 +117,6 @@ The system uses MongoDB for data storage, Redis for caching and rate limiting, a
    # Production mode
    npm start
    ```
-
-## Database Seeding
-
-Use the database seeder utility to populate your MongoDB with initial chapter data:
-
-```bash
-# Basic usage (uses the all_subjects_chapter_data.json file)
-npm run seed
-
-# Delete existing data before seeding
-npm run seed -- --delete
-
-# Use a custom JSON file
-npm run seed -- --file=custom_data.json
-
-# Display help information
-npm run seed -- --help
-```
 
 ## API Endpoints
 
@@ -243,6 +223,28 @@ POST /api/v1/chapters
 **Body**:
 - `chaptersFile`: JSON file containing an array of chapter objects
 
+**Chapter Format**:
+Each chapter in the JSON file should follow this format:
+```json
+{
+  "subject": "Physics",
+  "chapter": "Motion In One Dimension",
+  "class": "Class 11",
+  "unit": "Mechanics 1",
+  "yearWiseQuestionCount": {
+    "2019": 2,
+    "2020": 10,
+    "2021": 6,
+    "2022": 7,
+    "2023": 0,
+    "2024": 2,
+    "2025": 6
+  },
+  "questionSolved": 33,
+  "isWeakChapter": true
+}
+```
+
 **Example using cURL**:
 ```bash
 curl -X POST \
@@ -283,8 +285,10 @@ curl -X POST \
 ### Rate Limiting
 
 - API endpoints are protected by rate limiting (30 requests per minute per IP)
-- Rate limiting is implemented using Redis for distributed environments
-- Rate limit configuration can be adjusted through environment variables
+- Rate limiting is implemented using express-rate-limit with in-memory storage
+- Rate limit configuration can be adjusted through the following environment variables:
+  - `RATE_LIMIT_WINDOW_MS`: Time window in milliseconds (default: 60000 - 1 minute)
+  - `RATE_LIMIT_MAX`: Maximum number of requests per window (default: 30)
 
 ## Error Handling
 

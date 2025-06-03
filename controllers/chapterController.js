@@ -126,18 +126,36 @@ exports.getAllChapters = async (req, res, next) => {
 // Get a specific chapter by ID
 exports.getChapter = async (req, res, next) => {
   try {
+    const cacheKey = `chapter:${req.params.id}`;
+
+    // Check if the chapter is cached
+    const cachedChapter = await redisClient.get(cacheKey);
+    if (cachedChapter) {
+      console.log('Serving chapter from cache');
+      return res.status(200).json({
+        success: true,
+        data: JSON.parse(cachedChapter),
+      });
+    }
+
+    // Fetch the chapter from the database
     const chapter = await Chapter.findById(req.params.id);
-    
+
     if (!chapter) {
       return res.status(404).json({
         success: false,
-        message: 'Chapter not found'
+        message: 'Chapter not found',
       });
     }
-    
+
+    // Cache the chapter data
+    await redisClient.set(cacheKey, JSON.stringify(chapter), {
+      EX: parseInt(process.env.CACHE_DURATION) || 3600, // Default to 1 hour
+    });
+
     res.status(200).json({
       success: true,
-      data: chapter
+      data: chapter,
     });
   } catch (err) {
     next(err);

@@ -4,9 +4,8 @@ const redis = require('redis');
 const cors = require('cors');
 const helmet = require('helmet');
 const dotenv = require('dotenv');
-const rateLimit = require('express-rate-limit');
 const { createClient } = require('redis');
-const { RateLimiterRedis } = require('rate-limiter-flexible');
+const { rateLimiter, apiLimiter } = require('./middleware/rateLimitMiddleware');
 
 // Load environment variables
 dotenv.config();
@@ -33,24 +32,14 @@ mongoose.connect(process.env.MONGO_URI)
     process.exit(1);
   });
 
-// Set up rate limiting with a simple in-memory store
-const limiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 60000, // 1 minute
-  max: parseInt(process.env.RATE_LIMIT_MAX) || 30, // limit each IP to 30 requests per windowMs
-  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-  message: {
-    success: false,
-    message: 'Too many requests. Please try again later.'
-  },
-  // Skip for the root route in development
-  skip: (req) => process.env.NODE_ENV === 'development' && req.originalUrl === '/',
-  // Use request IP as key or fallback to a placeholder
-  keyGenerator: (req) => req.ip || req.headers['x-forwarded-for'] || '0.0.0.0'
+// Apply Redis-based rate limiting to all routes
+// Skip for the root route in development
+app.use((req, res, next) => {
+  if (process.env.NODE_ENV === 'development' && req.originalUrl === '/') {
+    return next();
+  }
+  rateLimiter(req, res, next);
 });
-
-// Apply rate limiting to all routes
-app.use(limiter);
 
 // Set up Redis client for caching (separate from rate limiting)
 const redisClient = createClient({
@@ -77,6 +66,8 @@ const redisClient = createClient({
 })();
 
 // API routes
+// Apply API-specific rate limiter to API routes
+app.use('/api/v1', apiLimiter);
 app.use('/api/v1/chapters', chapterRoutes);
 
 // Basic route for testing
