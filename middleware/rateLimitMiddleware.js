@@ -53,13 +53,11 @@ const initRateLimiters = async () => {
 // Initialize rate limiters immediately
 initRateLimiters();
 
-// Middleware function that applies rate limiting
-const rateLimiter = async (req, res, next) => {
+// Generic rate limiting middleware creator
+const createRateLimiter = (limiterInstance, errorMessage) => async (req, res, next) => {
   try {
-    // If Redis limiter not available, use memory limiter
-    const limiter = rateLimiterRedis || memoryRateLimiter;
+    const limiter = limiterInstance || memoryRateLimiter;
     const key = req.ip || req.headers['x-forwarded-for'] || '0.0.0.0';
-    
     const result = await limiter.consume(key);
     
     res.setHeader('X-RateLimit-Limit', limiter.points);
@@ -69,57 +67,28 @@ const rateLimiter = async (req, res, next) => {
     next();
   } catch (error) {
     if (error.remainingPoints !== undefined) {
-      const limiter = rateLimiterRedis || memoryRateLimiter;
+      const limiter = limiterInstance || memoryRateLimiter;
+      const retryAfter = Math.ceil(error.msBeforeNext / 1000);
+      
       res.setHeader('X-RateLimit-Limit', limiter.points);
       res.setHeader('X-RateLimit-Remaining', 0);
       res.setHeader('X-RateLimit-Reset', new Date(Date.now() + error.msBeforeNext).toISOString());
-      res.setHeader('Retry-After', Math.ceil(error.msBeforeNext / 1000));
+      res.setHeader('Retry-After', retryAfter);
       
       return res.status(429).json({
         success: false,
-        message: 'Too many requests. Please try again later.',
-        retryAfter: Math.ceil(error.msBeforeNext / 1000)
+        message: errorMessage,
+        retryAfter
       });
     }
-    
     console.error('Rate limiting error:', error);
     next();
   }
 };
 
-// Middleware function for API endpoints
-const apiLimiter = async (req, res, next) => {
-  try {
-    // If Redis limiter not available, use memory limiter
-    const limiter = apiRateLimiter || memoryRateLimiter;
-    const key = req.ip || req.headers['x-forwarded-for'] || '0.0.0.0';
-    
-    const result = await limiter.consume(key);
-    
-    res.setHeader('X-RateLimit-Limit', limiter.points);
-    res.setHeader('X-RateLimit-Remaining', result.remainingPoints);
-    res.setHeader('X-RateLimit-Reset', new Date(Date.now() + result.msBeforeNext).toISOString());
-    
-    next();
-  } catch (error) {
-    if (error.remainingPoints !== undefined) {
-      const limiter = apiRateLimiter || memoryRateLimiter;
-      res.setHeader('X-RateLimit-Limit', limiter.points);
-      res.setHeader('X-RateLimit-Remaining', 0);
-      res.setHeader('X-RateLimit-Reset', new Date(Date.now() + error.msBeforeNext).toISOString());
-      res.setHeader('Retry-After', Math.ceil(error.msBeforeNext / 1000));
-      
-      return res.status(429).json({
-        success: false,
-        message: 'API rate limit exceeded. Please try again later.',
-        retryAfter: Math.ceil(error.msBeforeNext / 1000)
-      });
-    }
-    
-    console.error('API rate limiting error:', error);
-    next();
-  }
-};
+// Create middleware instances
+const rateLimiter = createRateLimiter(rateLimiterRedis, 'Too many requests. Please try again later.');
+const apiLimiter = createRateLimiter(apiRateLimiter, 'API rate limit exceeded. Please try again later.');
 
 module.exports = {
   rateLimiter,

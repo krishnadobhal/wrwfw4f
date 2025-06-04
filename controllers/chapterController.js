@@ -53,78 +53,51 @@ async function getRedisClient() {
 // Get all chapters with filtering, pagination, and caching
 exports.getAllChapters = async (req, res, next) => {
   try {
-    const redisClient = await getRedisClient();
-
-    // Get query parameters for filtering
-    const { class: className, unit, status, subject } = req.query;
-    const weakChapters = req.query.weakChapters === 'true';
-    
-    // Get pagination parameters
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
-    const skip = (page - 1) * limit;
-    
-    // Create the cache key based on the query parameters
+    const { class: className, unit, status, subject, page = 1, limit = 10, weakChapters } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
     const cacheKey = `chapters:${className || ''}:${unit || ''}:${status || ''}:${subject || ''}:${weakChapters}:${page}:${limit}`;
-    
-    // Try to get data from cache
-    let cachedData = null;
+
+    // Try to get from cache
+    const redisClient = await getRedisClient();
     if (redisClient) {
       try {
-        cachedData = await redisClient.get(cacheKey);
-      } catch (err) {
-        console.error('Redis get error:', err);
-      }
+        const cachedData = await redisClient.get(cacheKey);
+        if (cachedData) return res.status(200).json(JSON.parse(cachedData));
+      } catch (err) {}
     }
 
-    if (cachedData) {
-      console.log('Serving from cache');
-      return res.status(200).json(JSON.parse(cachedData));
-    }
-    
-    // Build the filter object
-    const filter = {};
-    
-    if (className) filter.class = className;
-    if (unit) filter.unit = unit;
-    if (status) filter.status = status;
-    if (subject) filter.subject = subject;
-    if (req.query.weakChapters === 'true') filter.isWeakChapter = true;
-    
-    // Get total count for pagination
-    const totalChapters = await Chapter.countDocuments(filter);
-    
-    // Get chapters with filtering and pagination
-    const chapters = await Chapter.find(filter)
-      .skip(skip)
-      .limit(limit)
-      .sort({ subject: 1, unit: 1, chapter: 1 });
-    
-    // Prepare response
+    // Build filter
+    const filter = Object.entries({ class: className, unit, status, subject })
+      .reduce((acc, [key, value]) => value ? { ...acc, [key]: value } : acc, {});
+    if (weakChapters === 'true') filter.isWeakChapter = true;
+
+    // Get data and total count
+    const [chapters, totalChapters] = await Promise.all([
+      Chapter.find(filter)
+        .skip(skip)
+        .limit(parseInt(limit))
+        .sort({ subject: 1, unit: 1, chapter: 1 }),
+      Chapter.countDocuments(filter)
+    ]);
+
     const response = {
       success: true,
       count: chapters.length,
       totalChapters,
-      totalPages: Math.ceil(totalChapters / limit),
-      currentPage: page,
+      totalPages: Math.ceil(totalChapters / parseInt(limit)),
+      currentPage: parseInt(page),
       data: chapters
     };
-    
-    // Cache the response
+
+    // Cache response
     if (redisClient) {
       try {
-        await redisClient.set(
-          cacheKey,
-          JSON.stringify(response),
-          {
-            EX: parseInt(process.env.CACHE_DURATION) || 3600 // Default to 1 hour
-          }
-        );
-      } catch (err) {
-        console.error('Redis set error:', err);
-      }
+        await redisClient.set(cacheKey, JSON.stringify(response), {
+          EX: parseInt(process.env.CACHE_DURATION) || 3600
+        });
+      } catch (err) {}
     }
-    
+
     res.status(200).json(response);
   } catch (err) {
     next(err);
