@@ -1,72 +1,76 @@
 const IORedis = require('ioredis');
 const { RateLimiterRedis, RateLimiterMemory } = require('rate-limiter-flexible');
 const config = require('../config/config');
-
-// Redis client for rate limiting
-let redisClient;
-
-// Initialize Redis client
-const initRedisClient = () => {
-  if (redisClient) {
-    return redisClient;
-  }
-
-  // Create Redis client using configuration
-  redisClient = new IORedis({
-    host: config.redis.host,
-    port: config.redis.port,
-    password: config.redis.password,
-    enableOfflineQueue: false,
-  });
-
-  // Handle connection events
-  redisClient.on('error', (err) => {
-    console.error('Redis Rate Limiter Error:', err);
-  });
-
-  redisClient.on('connect', () => {
-    console.log('Redis Rate Limiter Connected');
-  });
-
-  return redisClient;
-};
+const { initRedisClient } = require('../utils/redisUtils');
 
 // Create in-memory fallback limiter for when Redis is down
 const memoryRateLimiter = new RateLimiterMemory({
-  points: 10, // More restrictive when Redis is down
-  duration: 60, // Per minute
+  points: Math.floor(config.rateLimit.max / 3), // More restrictive when Redis is down
+  duration: Math.floor(config.rateLimit.windowMs / 1000), // Convert ms to seconds
 });
 
-// Create rate limiter instance
-const rateLimiterRedis = new RateLimiterRedis({
-  storeClient: initRedisClient(),
-  keyPrefix: 'rl:',
-  points: process.env.RATE_LIMIT_MAX || 30, // Number of requests allowed
-  duration: process.env.RATE_LIMIT_WINDOW_SECONDS || 60, // Per time window (in seconds)
-  blockDuration: 60, // Block for 1 minute if limit exceeded
-  // Use memory-based limiter as fallback when Redis is down
-  insuranceLimiter: memoryRateLimiter
-});
+// Initialize rate limiters
+let rateLimiterRedis;
+let apiRateLimiter;
+
+// Initialize Redis client and rate limiters
+const initRateLimiters = async () => {
+  try {
+    const redisClient = await initRedisClient();
+    
+    if (!redisClient) {
+      console.warn('Redis client not available, using memory rate limiter');
+      return false;
+    }
+
+    // Create rate limiter instance using config values
+    rateLimiterRedis = new RateLimiterRedis({
+      storeClient: redisClient,
+      keyPrefix: config.cache.prefix + 'rl:',
+      points: config.rateLimit.max,
+      duration: Math.floor(config.rateLimit.windowMs / 1000), // Convert ms to seconds
+      blockDuration: config.rateLimit.windowMs / 1000, // Use same window for block duration
+      insuranceLimiter: memoryRateLimiter
+    });
+
+    // API-specific rate limiter with doubled limits from config
+    apiRateLimiter = new RateLimiterRedis({
+      storeClient: redisClient,
+      keyPrefix: config.cache.prefix + 'rl:api:',
+      points: config.rateLimit.max * 2, // Double the standard limit for API routes
+      duration: Math.floor(config.rateLimit.windowMs / 1000),
+      blockDuration: config.rateLimit.windowMs / 500, // Shorter block for API routes
+      insuranceLimiter: memoryRateLimiter
+    });
+
+    return true;
+  } catch (err) {
+    console.error('Failed to initialize rate limiters:', err);
+    return false;
+  }
+};
+
+// Initialize rate limiters immediately
+initRateLimiters();
 
 // Middleware function that applies rate limiting
 const rateLimiter = async (req, res, next) => {
   try {
-    // Use IP address as the key for rate limiting
+    // If Redis limiter not available, use memory limiter
+    const limiter = rateLimiterRedis || memoryRateLimiter;
     const key = req.ip || req.headers['x-forwarded-for'] || '0.0.0.0';
     
-    // Check rate limit
-    const result = await rateLimiterRedis.consume(key);
+    const result = await limiter.consume(key);
     
-    // Set rate limit headers
-    res.setHeader('X-RateLimit-Limit', rateLimiterRedis.points);
+    res.setHeader('X-RateLimit-Limit', limiter.points);
     res.setHeader('X-RateLimit-Remaining', result.remainingPoints);
     res.setHeader('X-RateLimit-Reset', new Date(Date.now() + result.msBeforeNext).toISOString());
     
     next();
   } catch (error) {
-    // Rate limit exceeded
     if (error.remainingPoints !== undefined) {
-      res.setHeader('X-RateLimit-Limit', rateLimiterRedis.points);
+      const limiter = rateLimiterRedis || memoryRateLimiter;
+      res.setHeader('X-RateLimit-Limit', limiter.points);
       res.setHeader('X-RateLimit-Remaining', 0);
       res.setHeader('X-RateLimit-Reset', new Date(Date.now() + error.msBeforeNext).toISOString());
       res.setHeader('Retry-After', Math.ceil(error.msBeforeNext / 1000));
@@ -78,42 +82,29 @@ const rateLimiter = async (req, res, next) => {
       });
     }
     
-    // Redis connection error - proceed without rate limiting
     console.error('Rate limiting error:', error);
     next();
   }
 };
 
-// Create in-memory fallback limiter for API endpoints
-const apiMemoryRateLimiter = new RateLimiterMemory({
-  points: 20, // More restrictive when Redis is down
-  duration: 60, // Per minute
-});
-
-// API-specific rate limiter with stricter limits
-const apiRateLimiter = new RateLimiterRedis({
-  storeClient: initRedisClient(),
-  keyPrefix: 'rl:api:',
-  points: 60, // 60 requests
-  duration: 60, // per minute
-  blockDuration: 120, // block for 2 minutes
-  insuranceLimiter: apiMemoryRateLimiter
-});
-
 // Middleware function for API endpoints
 const apiLimiter = async (req, res, next) => {
   try {
+    // If Redis limiter not available, use memory limiter
+    const limiter = apiRateLimiter || memoryRateLimiter;
     const key = req.ip || req.headers['x-forwarded-for'] || '0.0.0.0';
-    const result = await apiRateLimiter.consume(key);
     
-    res.setHeader('X-RateLimit-Limit', apiRateLimiter.points);
+    const result = await limiter.consume(key);
+    
+    res.setHeader('X-RateLimit-Limit', limiter.points);
     res.setHeader('X-RateLimit-Remaining', result.remainingPoints);
     res.setHeader('X-RateLimit-Reset', new Date(Date.now() + result.msBeforeNext).toISOString());
     
     next();
   } catch (error) {
     if (error.remainingPoints !== undefined) {
-      res.setHeader('X-RateLimit-Limit', apiRateLimiter.points);
+      const limiter = apiRateLimiter || memoryRateLimiter;
+      res.setHeader('X-RateLimit-Limit', limiter.points);
       res.setHeader('X-RateLimit-Remaining', 0);
       res.setHeader('X-RateLimit-Reset', new Date(Date.now() + error.msBeforeNext).toISOString());
       res.setHeader('Retry-After', Math.ceil(error.msBeforeNext / 1000));

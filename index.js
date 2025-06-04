@@ -4,8 +4,8 @@ const redis = require('redis');
 const cors = require('cors');
 const helmet = require('helmet');
 const dotenv = require('dotenv');
-const { createClient } = require('redis');
 const { rateLimiter, apiLimiter } = require('./middleware/rateLimitMiddleware');
+const { initRedisClient } = require('./utils/redisUtils');
 
 // Load environment variables
 dotenv.config();
@@ -41,24 +41,17 @@ app.use((req, res, next) => {
   rateLimiter(req, res, next);
 });
 
-// Set up Redis client for caching (separate from rate limiting)
-const redisClient = createClient({
-  url: `redis://${process.env.REDIS_HOST}:${process.env.REDIS_PORT}`,
-  password: process.env.REDIS_PASSWORD || undefined,
-});
-
-// Connect to Redis (for caching only, not rate limiting)
+// Initialize Redis client for caching
 (async () => {
   try {
-    // Handle Redis connection errors
-    redisClient.on('error', (err) => {
-      console.error('Redis Client Error:', err);
-      console.log('Cache will not be available, but API will still function');
-    });
-    
-    // Connect to Redis
-    await redisClient.connect();
-    console.log('Connected to Redis for caching');
+    const redisClient = await initRedisClient();
+    if (redisClient) {
+      redisClient.on('error', (err) => {
+        console.error('Redis Client Error:', err);
+        console.log('Cache will not be available, but API will still function');
+      });
+      console.log('Connected to Redis for caching');
+    }
   } catch (err) {
     console.error('Redis connection error:', err);
     console.log('API will function without Redis caching');
