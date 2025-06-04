@@ -1,24 +1,8 @@
 const Chapter = require('../models/chapterModel');
-const { createClient } = require('redis');
+const { initRedisClient } = require('../utils/redisUtils'); // Import the util
 const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
-
-// Set up Redis client
-const redisClient = createClient({
-  host: process.env.REDIS_HOST,
-  port: process.env.REDIS_PORT,
-  password: process.env.REDIS_PASSWORD || undefined,
-});
-
-// Connect to Redis
-(async () => {
-  try {
-    await redisClient.connect();
-  } catch (err) {
-    console.error('Redis connection error in controller:', err);
-  }
-})();
 
 // Configure multer storage
 const storage = multer.diskStorage({
@@ -57,9 +41,20 @@ try {
   console.error('Error creating uploads directory:', err);
 }
 
+// Helper to get Redis client (singleton)
+let redisClientPromise = null;
+async function getRedisClient() {
+  if (!redisClientPromise) {
+    redisClientPromise = initRedisClient();
+  }
+  return redisClientPromise;
+}
+
 // Get all chapters with filtering, pagination, and caching
 exports.getAllChapters = async (req, res, next) => {
   try {
+    const redisClient = await getRedisClient();
+
     // Get query parameters for filtering
     const { class: className, unit, status, subject } = req.query;
     const weakChapters = req.query.weakChapters === 'true';
@@ -73,8 +68,15 @@ exports.getAllChapters = async (req, res, next) => {
     const cacheKey = `chapters:${className || ''}:${unit || ''}:${status || ''}:${subject || ''}:${weakChapters}:${page}:${limit}`;
     
     // Try to get data from cache
-    const cachedData = await redisClient.get(cacheKey);
-    
+    let cachedData = null;
+    if (redisClient) {
+      try {
+        cachedData = await redisClient.get(cacheKey);
+      } catch (err) {
+        console.error('Redis get error:', err);
+      }
+    }
+
     if (cachedData) {
       console.log('Serving from cache');
       return res.status(200).json(JSON.parse(cachedData));
@@ -109,13 +111,19 @@ exports.getAllChapters = async (req, res, next) => {
     };
     
     // Cache the response
-    await redisClient.set(
-      cacheKey, 
-      JSON.stringify(response), 
-      {
-        EX: parseInt(process.env.CACHE_DURATION) || 3600 // Default to 1 hour
+    if (redisClient) {
+      try {
+        await redisClient.set(
+          cacheKey,
+          JSON.stringify(response),
+          {
+            EX: parseInt(process.env.CACHE_DURATION) || 3600 // Default to 1 hour
+          }
+        );
+      } catch (err) {
+        console.error('Redis set error:', err);
       }
-    );
+    }
     
     res.status(200).json(response);
   } catch (err) {
@@ -126,10 +134,18 @@ exports.getAllChapters = async (req, res, next) => {
 // Get a specific chapter by ID
 exports.getChapter = async (req, res, next) => {
   try {
+    const redisClient = await getRedisClient();
     const cacheKey = `chapter:${req.params.id}`;
 
     // Check if the chapter is cached
-    const cachedChapter = await redisClient.get(cacheKey);
+    let cachedChapter = null;
+    if (redisClient) {
+      try {
+        cachedChapter = await redisClient.get(cacheKey);
+      } catch (err) {
+        console.error('Redis get error:', err);
+      }
+    }
     if (cachedChapter) {
       console.log('Serving chapter from cache');
       return res.status(200).json({
@@ -149,9 +165,15 @@ exports.getChapter = async (req, res, next) => {
     }
 
     // Cache the chapter data
-    await redisClient.set(cacheKey, JSON.stringify(chapter), {
-      EX: parseInt(process.env.CACHE_DURATION) || 3600, // Default to 1 hour
-    });
+    if (redisClient) {
+      try {
+        await redisClient.set(cacheKey, JSON.stringify(chapter), {
+          EX: parseInt(process.env.CACHE_DURATION) || 3600,
+        });
+      } catch (err) {
+        console.error('Redis set error:', err);
+      }
+    }
 
     res.status(200).json({
       success: true,
@@ -185,9 +207,9 @@ exports.uploadChapters = (req, res, next) => {
       });
     }
     
+    let filePath;
     try {
-      // Read the JSON file
-      const filePath = path.join(process.cwd(), req.file.path);
+      filePath = path.join(process.cwd(), req.file.path);
       const fileData = fs.readFileSync(filePath, 'utf8');
       let chapters;
       
@@ -229,12 +251,23 @@ exports.uploadChapters = (req, res, next) => {
       }
       
       // Clean up the uploaded file
-      fs.unlinkSync(filePath);
+      try {
+        fs.unlinkSync(filePath);
+      } catch (unlinkErr) {
+        console.error('Error deleting uploaded file:', unlinkErr);
+      }
       
       // Invalidate the cache for chapters
-      const keys = await redisClient.keys('chapters:*');
-      if (keys.length > 0) {
-        await redisClient.del(keys);
+      try {
+        const redisClient = await getRedisClient();
+        if (redisClient) {
+          const keys = await redisClient.keys('chapters:*');
+          if (keys.length > 0) {
+            await redisClient.del(keys);
+          }
+        }
+      } catch (redisErr) {
+        console.error('Error invalidating Redis cache:', redisErr);
       }
       
       res.status(200).json({
@@ -245,6 +278,14 @@ exports.uploadChapters = (req, res, next) => {
         failedChapters: uploadResults.failed
       });
     } catch (err) {
+      // Clean up the uploaded file if an error occurred
+      if (filePath && fs.existsSync(filePath)) {
+        try {
+          fs.unlinkSync(filePath);
+        } catch (unlinkErr) {
+          console.error('Error deleting uploaded file after failure:', unlinkErr);
+        }
+      }
       next(err);
     }
   });

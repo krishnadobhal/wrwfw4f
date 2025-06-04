@@ -42,21 +42,25 @@ app.use((req, res, next) => {
 });
 
 // Initialize Redis client for caching
-(async () => {
-  try {
-    const redisClient = await initRedisClient();
-    if (redisClient) {
-      redisClient.on('error', (err) => {
-        console.error('Redis Client Error:', err);
-        console.log('Cache will not be available, but API will still function');
-      });
-      console.log('Connected to Redis for caching');
+try {
+  (async () => {
+    try {
+      const redisClient = await initRedisClient();
+      if (redisClient) {
+        redisClient.on('error', (err) => {
+          console.error('Redis Client Error:', err);
+          console.log('Cache will not be available, but API will still function');
+        });
+        console.log('Connected to Redis for caching');
+      }
+    } catch (err) {
+      console.error('Redis connection error:', err);
+      console.log('API will function without Redis caching');
     }
-  } catch (err) {
-    console.error('Redis connection error:', err);
-    console.log('API will function without Redis caching');
-  }
-})();
+  })();
+} catch (outerErr) {
+  console.error('Unexpected error during Redis setup:', outerErr);
+}
 
 // API routes
 // Apply API-specific rate limiter to API routes

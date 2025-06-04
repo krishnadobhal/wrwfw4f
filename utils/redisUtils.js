@@ -1,14 +1,8 @@
 const { createClient } = require('redis');
 
-/**
- * Redis Client Singleton
- */
+
 let redisClient;
 
-/**
- * Initialize Redis client and connect
- * @returns {Object} Redis client instance
- */
 const initRedisClient = async () => {
   if (redisClient) {
     return redisClient;

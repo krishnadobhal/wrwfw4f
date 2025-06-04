@@ -217,7 +217,9 @@ POST /api/v1/chapters
 ```
 
 **Headers**:
-- `x-admin-token`: Admin authentication token (required)
+- `x-admin-token`: Admin authentication token (required, value is your JWT_SECRET from .env)
+- `authorization`: Alternatively, use `Bearer <token>` (token is your JWT_SECRET)
+- Or as a query parameter: `?token=YOUR_JWT_SECRET`
 - `Content-Type`: multipart/form-data
 
 **Body**:
@@ -245,10 +247,23 @@ Each chapter in the JSON file should follow this format:
 }
 ```
 
+**Admin Authentication Details**:
+- The admin token is required for uploading chapters.
+- The token value is set to the value of `JWT_SECRET` in your `.env` file.
+- You can provide the token in one of three ways:
+  1. As the `x-admin-token` header
+  2. As a Bearer token in the `authorization` header
+  3. As a `token` query parameter
+
 **Example using cURL**:
 ```bash
 curl -X POST \
-  -H "x-admin-token: mathongo_secret_key" \
+  -H "x-admin-token: $JWT_SECRET" \
+  -F "chaptersFile=@new_chapters.json" \
+  http://localhost:3000/api/v1/chapters
+# Or using Bearer token:
+curl -X POST \
+  -H "Authorization: Bearer $JWT_SECRET" \
   -F "chaptersFile=@new_chapters.json" \
   http://localhost:3000/api/v1/chapters
 ```

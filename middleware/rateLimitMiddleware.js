@@ -5,8 +5,8 @@ const { initRedisClient } = require('../utils/redisUtils');
 
 // Create in-memory fallback limiter for when Redis is down
 const memoryRateLimiter = new RateLimiterMemory({
-  points: Math.floor(config.rateLimit.max / 3), // More restrictive when Redis is down
-  duration: Math.floor(config.rateLimit.windowMs / 1000), // Convert ms to seconds
+  points: Math.floor(config.rateLimit.max / 3), 
+  duration: Math.floor(config.rateLimit.windowMs / 1000), 
 });
 
 // Initialize rate limiters
@@ -28,8 +28,8 @@ const initRateLimiters = async () => {
       storeClient: redisClient,
       keyPrefix: config.cache.prefix + 'rl:',
       points: config.rateLimit.max,
-      duration: Math.floor(config.rateLimit.windowMs / 1000), // Convert ms to seconds
-      blockDuration: config.rateLimit.windowMs / 1000, // Use same window for block duration
+      duration: Math.floor(config.rateLimit.windowMs / 1000), 
+      blockDuration: config.rateLimit.windowMs / 1000, 
       insuranceLimiter: memoryRateLimiter
     });
 
@@ -37,9 +37,9 @@ const initRateLimiters = async () => {
     apiRateLimiter = new RateLimiterRedis({
       storeClient: redisClient,
       keyPrefix: config.cache.prefix + 'rl:api:',
-      points: config.rateLimit.max * 2, // Double the standard limit for API routes
+      points: config.rateLimit.max * 2, 
       duration: Math.floor(config.rateLimit.windowMs / 1000),
-      blockDuration: config.rateLimit.windowMs / 500, // Shorter block for API routes
+      blockDuration: config.rateLimit.windowMs / 500, 
       insuranceLimiter: memoryRateLimiter
     });
 
