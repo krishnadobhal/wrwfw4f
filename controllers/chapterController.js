@@ -78,15 +78,38 @@ exports.getAllChapters = async (req, res, next) => {
         .limit(parseInt(limit))
         .sort({ subject: 1, unit: 1, chapter: 1 }),
       Chapter.countDocuments(filter)
-    ]);
+    ]); 
+    // Calculate total questions and completion percentage for each chapter
+    const enrichedChapters = chapters.map(chapter => {
+      const totalQuestions = Array.from(chapter.yearWiseQuestionCount.values())
+        .reduce((sum, count) => sum + (Number(count) || 0), 0);
+      
+      const completionPercentage = totalQuestions === 0 ? 0 : 
+        Math.round((chapter.questionSolved / totalQuestions) * 100);
+
+      // Update status based on completion
+      let status = 'Not Started';
+      if (chapter.questionSolved >= totalQuestions && totalQuestions > 0) {
+        status = 'Completed';
+      } else if (chapter.questionSolved > 0) {
+        status = 'In Progress';
+      }
+
+      return {
+        ...chapter.toObject(),
+        totalQuestions,
+        completionPercentage,
+        status
+      };
+    });
 
     const response = {
       success: true,
-      count: chapters.length,
+      count: enrichedChapters.length,
       totalChapters,
       totalPages: Math.ceil(totalChapters / parseInt(limit)),
       currentPage: parseInt(page),
-      data: chapters
+      data: enrichedChapters
     };
 
     // Cache response
@@ -146,11 +169,32 @@ exports.getChapter = async (req, res, next) => {
       } catch (err) {
         console.error('Redis set error:', err);
       }
+    }    // Calculate total questions and completion percentage
+    const totalQuestions = Array.from(chapter.yearWiseQuestionCount.values())
+      .reduce((sum, count) => sum + (Number(count) || 0), 0);
+    
+    const completionPercentage = totalQuestions === 0 ? 0 : 
+      Math.round((chapter.questionSolved / totalQuestions) * 100);
+
+    // Update status based on completion
+    let status = 'Not Started';
+    if (chapter.questionSolved >= totalQuestions && totalQuestions > 0) {
+      status = 'Completed';
+    } else if (chapter.questionSolved > 0) {
+      status = 'In Progress';
     }
+
+    // Add calculated fields to response
+    const enrichedChapter = {
+      ...chapter.toObject(),
+      totalQuestions,
+      completionPercentage,
+      status
+    };
 
     res.status(200).json({
       success: true,
-      data: chapter,
+      data: enrichedChapter,
     });
   } catch (err) {
     next(err);

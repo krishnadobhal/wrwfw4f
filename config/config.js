@@ -1,7 +1,6 @@
 const dotenv = require('dotenv');
 const path = require('path');
 
-// Load environment variables from .env file
 dotenv.config();
 
 
@@ -15,18 +14,15 @@ const checkRequiredEnvs = (requiredEnvs) => {
   }
 };
 
-// List of required environment variables
 const requiredEnvs = [
   'MONGO_URI',
   'JWT_SECRET'
 ];
 
-// Check for required environment variables
 checkRequiredEnvs(requiredEnvs);
 
 // Configuration object
 const config = {
-  // Server configuration
   server: {
     port: parseInt(process.env.PORT) || 3000,
     env: process.env.NODE_ENV || 'development',
