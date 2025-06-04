@@ -33,13 +33,7 @@ mongoose.connect(process.env.MONGO_URI)
   });
 
 // Apply Redis-based rate limiting to all routes
-// Skip for the root route in development
-app.use((req, res, next) => {
-  if (process.env.NODE_ENV === 'development' && req.originalUrl === '/') {
-    return next();
-  }
-  rateLimiter(req, res, next);
-});
+app.use(rateLimiter);
 
 // Initialize Redis client for caching
 try {
@@ -85,11 +79,10 @@ app.use((req, res, next) => {
 
 // Global Error Handler
 app.use((err, req, res, next) => {
-  console.error('Error:', err);
-  res.status(err.statusCode || 500).json({
+  console.error('Error:', err);  res.status(err.statusCode || 500).json({
     success: false,
     message: err.message || 'Internal Server Error',
-    error: process.env.NODE_ENV === 'development' ? err : {}
+    error: {}
   });
 });
 
