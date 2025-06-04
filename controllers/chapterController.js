@@ -58,12 +58,16 @@ exports.getAllChapters = async (req, res, next) => {
     const cacheKey = `chapters:${className || ''}:${unit || ''}:${status || ''}:${subject || ''}:${weakChapters}:${page}:${limit}`;
 
     // Try to get from cache
-    const redisClient = await getRedisClient();
-    if (redisClient) {
+    const redisClient = await getRedisClient();    if (redisClient) {
       try {
         const cachedData = await redisClient.get(cacheKey);
-        if (cachedData) return res.status(200).json(JSON.parse(cachedData));
-      } catch (err) {}
+        if (cachedData) {
+          console.log('Cache Hit! Serving All Chapters from Redis cache');
+          return res.status(200).json(JSON.parse(cachedData));
+        }
+      } catch (err) {
+        console.error('Redis get error:', err);
+      }
     }
 
     // Build filter
@@ -141,9 +145,8 @@ exports.getChapter = async (req, res, next) => {
       } catch (err) {
         console.error('Redis get error:', err);
       }
-    }
-    if (cachedChapter) {
-      console.log('Serving chapter from cache');
+    }    if (cachedChapter) {
+      console.log('Cache Hit! Serving single chapter from Redis cache');
       return res.status(200).json({
         success: true,
         data: JSON.parse(cachedChapter),
