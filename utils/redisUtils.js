@@ -1,4 +1,6 @@
 const { createClient } = require('redis');
+const dotenv = require('dotenv');
+dotenv.config();
 
 let redisClient;
 
@@ -10,10 +12,10 @@ const initRedisClient = async () => {
         console.log('📡 Connecting to Redis...');
         redisClient = createClient({
           username: 'default',
-          password: process.env.REDIS_PASSWORD || undefined,
+          password: process.env.REDIS_PASSWORD,
           socket: {
-            host: process.env.REDIS_HOST || 'localhost',
-            port: parseInt(process.env.REDIS_PORT) || 6379
+            host: process.env.REDIS_HOST,
+            port: parseInt(process.env.REDIS_PORT)
           }
         });
 
