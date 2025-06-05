@@ -206,57 +206,36 @@ exports.getChapter = async (req, res, next) => {
 
 // Upload chapters from a JSON file (admin only)
 exports.uploadChapters = (req, res, next) => {
-  // Ensure uploads directory exists
-  if (!fs.existsSync('uploads')) {
-    fs.mkdirSync('uploads', { recursive: true });
-  }
-
-  console.log('Starting file upload...');
-  
   upload(req, res, async function(err) {
-    console.log('Upload callback triggered');
-    
     if (err instanceof multer.MulterError) {
-      console.error('Multer error:', err);
       return res.status(400).json({
         success: false,
-        message: `File upload error: ${err.message}`
+        message: `Multer error: ${err.message}`
       });
     } else if (err) {
-      console.error('Upload error:', err);
       return res.status(400).json({
         success: false,
         message: err.message
       });
     }
-
+    
     // Check if a file was uploaded
     if (!req.file) {
-      console.log('No file received');
       return res.status(400).json({
         success: false,
         message: 'Please upload a JSON file'
       });
     }
-
-    console.log('File received:', req.file);
     
     let filePath;
     try {
-      filePath = path.resolve(req.file.path);
-      console.log('Reading file from:', filePath);
-      
-      if (!fs.existsSync(filePath)) {
-        throw new Error('Uploaded file not found at path: ' + filePath);
-      }
-
+      filePath = path.join(process.cwd(), req.file.path);
       const fileData = fs.readFileSync(filePath, 'utf8');
       let chapters;
       
       try {
         chapters = JSON.parse(fileData);
       } catch (parseError) {
-        console.error('JSON parse error:', parseError);
         return res.status(400).json({
           success: false,
           message: 'Invalid JSON format'
@@ -319,19 +298,15 @@ exports.uploadChapters = (req, res, next) => {
         failedChapters: uploadResults.failed
       });
     } catch (err) {
-      console.error('Processing error:', err);
-      // Clean up the uploaded file if it exists
+      // Clean up the uploaded file if an error occurred
       if (filePath && fs.existsSync(filePath)) {
         try {
           fs.unlinkSync(filePath);
         } catch (unlinkErr) {
-          console.error('Error deleting uploaded file:', unlinkErr);
+          console.error('Error deleting uploaded file after failure:', unlinkErr);
         }
       }
-      return res.status(500).json({
-        success: false,
-        message: 'Error processing file: ' + err.message
-      });
+      next(err);
     }
   });
 };
