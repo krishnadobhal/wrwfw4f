@@ -2,6 +2,15 @@
 
 A RESTful API-based backend for a Chapter Performance Dashboard. This application simulates real-world backend requirements such as API design, data filtering, caching, and performance optimization.
 
+
+### Live API Endpoints
+
+The API is available at two live endpoints:
+- Primary endpoint: `http://13.235.48.218:3000/api/v1/chapters`
+- Secondary endpoint: `https://wrwfw4f.onrender.com/api/v1/chapters/`
+
+You can test the API functionality using these live endpoints.
+
 ## Table of Contents
 
 - [Project Overview](#project-overview)
@@ -119,6 +128,7 @@ The system uses MongoDB for data storage, Redis for caching, and Express.js for 
    ```
 
 ## API Endpoints
+
 
 ### Get All Chapters
 
